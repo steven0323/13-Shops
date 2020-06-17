@@ -31,7 +31,7 @@ from datetime import date,timedelta
 import datetime
 import os.path
 from os import path
-
+import schedule
 
 
 line_url = "https://buy.line.me"
@@ -43,7 +43,7 @@ KEY_FILE_LOCATION = './client_secrets 2.json'
 VIEW_ID = '195912070'
 sd = date.today() - timedelta(days=1)
 sd=sd.strftime('%Y-%m-%d')
-
+token = "KROeVpJKpfbcEQTa883Ep2G4w8jyDfB5ks5SnK6BhHM"
 
 def initialize_analyticsreporting():
   """Initializes an Analytics Reporting API V4 service object.
@@ -139,6 +139,22 @@ def ga():
     
     
     return df
+
+
+'''
+    Sending daily result via line notigy 
+'''
+
+def lineNotifyMessage(token,msg):
+    
+    headers = {"Authorization":"Bearer "+token,
+               "Content-Type":"application/x-www-form-urlencoded"}
+    
+    payload = {'message':msg}
+    r = requests.post("https://notify-api.line.me/api/notify", headers = headers, params = payload)
+    
+    return r.status_code
+
 
 
 def send_csv(attachment):
@@ -625,14 +641,14 @@ def scrap(df,browser):
     return r_status,category,date_
 
 
-def dataframe(df,target):
+def dataframe(target,df):
     
     target_ = [2,18,20,50,90,9]
     data = {'商家':[],'查詢總數':[],'前端出錯數量':[],'出錯比例':[]}
     for sid in target_:
         try:
-            dt = df.loc[df['SID'].isin([sid])]
-            all_ = target.loc[target['SID'].isin([sid])]
+            dt = target.loc[target['SID'].isin([sid])]
+            all_ = df.loc[df['SID'].isin([sid])]
             data['商家'].append(get_partner(sid))
             data['查詢總數'].append(len(all_))
             data['前端出錯數量'].append(len(dt))
@@ -688,14 +704,18 @@ def cookie(browser):
         browser.add_cookie(cookie)
                       
                 
-def main(df):
+def main():
     
     try:
         
+        df = ga()
+        df = df.sort_values(by='SID', ascending=True)
+        df.index = np.arange(1,len(df)+1) 
+        df = df.loc[df['product status'].isin(['有貨'])]
+        df.index = np.arange(1,len(df)+1) 
         options = Options()
         options.add_argument("user-data-dir={0}")
         browser = webdriver.Chrome(options=options,executable_path='./chromedriver')
-        df = df
         source= []
         links= []
         flag = []
@@ -717,7 +737,23 @@ def main(df):
         df['連結'] = links 
         df['API Flag'] = flag
         browser.quit() 
-        
+        data = df.loc[df['API Flag'].isin(['1'])]
+        data.index = np.arange(1,len(data)+1)
+                
+        data.to_csv(m+d+"_6layer1.csv")
+        df_1 = data[:7000]
+        df_1.index = np.arange(1,len(df_1)+1)
+        df_1.to_csv(m+d+"_6_1.csv")
+                
+        df_2 = data[7000:13000]
+        df_2.index = np.arange(1,len(df_2)+1)
+        df_2.to_csv(m+d+"_6_2.csv")
+                
+                
+        df_3 = data[13000:] 
+        df_3.index = np.arange(1,len(df_3)+1)
+        df_3.to_csv(m+d+"_6_3.csv")
+                
         return df
     except:
         print("error occur in main function")
@@ -729,22 +765,22 @@ def main(df):
     
 if __name__== "__main__":
     
-    count=1
-    #time.sleep(21600)
+    count=0
+    #time.sleep(2600)
     while True:
         
+        
         x = datetime.datetime.now() 
-        hr = x.strftime("%H")
-        mini = x.strftime("%M")
         m = x.strftime("%m")
         d = x.strftime("%d")
-       
+        hr = x.strftime("%H")
         mini = x.strftime("%M")
         
+        if hr == "06" and mini =="00":
+       
         
-        if hr == "10" and mini =="25":
+         
             try:
-                '''
                 df = ga()
                 
             
@@ -772,18 +808,15 @@ if __name__== "__main__":
                 df_3.index = np.arange(1,len(df_3)+1)
                 df_3.to_csv(m+d+"_6_3.csv")
                 
-                '''
+                
                 df_3 = pd.read_csv(m+d+"_6_3.csv")
-                #df_3 = df_3[3000:]
-                #df_3.index = np.arange(1,len(df_3)+1)
                 browser = webdriver.Chrome(executable_path="./chromedriver")
-                result,category,date = scrap(df_3,browser) 
+                result,category,date_ = scrap(df_3,browser) 
             
                 df_3['合作商家商品狀態'] = result
                 df_3['商品分類'] = category
-                df_3['時間'] = date
+                df_3['時間'] = date_
                 df_3.to_csv(m+d+"_6_result_3.csv",index=False)
-                
                 print(" -------> Project complete")
                 pass
             
@@ -791,7 +824,7 @@ if __name__== "__main__":
                 print()     
                 print("system design error occur") 
                 send_mail("df 3 system design error")
-                break
+                time.sleep(57600)
         
         elif path.exists(m+d+"_6_result_1.csv") and path.exists(m+d+"_6__result_2.csv") and path.exists(m+d+"_6_result_3.csv"):
             
@@ -819,11 +852,17 @@ if __name__== "__main__":
                 data = pd.DataFrame(data)
                 data.to_csv(m+d+"_6_result.csv",index=False)
                 
+                for sid,rate in zip(date['商家'],data['出錯比例']):
+                    if float(rate) >= 0.15:
+                        message = "合作商家SID "+str(sid)+"出錯比例高於15%"
+                        lineNotifyMessage(token,message)
+                
+                
                 send_csv(m+d+"_6_result.csv")
                 send_csv(m+d+"_6_Data.csv")
             
                 send_mail("Smile you dumbfuck !")
-                count+=1
+                time.sleep(57600)
             else:
                 pass
             
